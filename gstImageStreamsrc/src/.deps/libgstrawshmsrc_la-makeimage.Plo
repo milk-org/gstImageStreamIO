@@ -1,0 +1,3 @@
+libgstrawshmsrc_la-makeimage.lo: makeimage.c /usr/include/stdc-predef.h
+
+/usr/include/stdc-predef.h:
