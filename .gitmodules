@@ -1,0 +1,4 @@
+[submodule "tplib/ImageStreamIO"]
+	path = tplib/ImageStreamIO
+	url = https://github.com/milk-org/ImageStreamIO.git
+	branch = feature/GPUIPC
