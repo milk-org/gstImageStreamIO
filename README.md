@@ -3,8 +3,8 @@
 ## installation
 
 ```bash
-git clone git@gitlab.obspm.fr:greenflash/gstImageStreamIOsrc.git
-cd gstImageStreamIOsrc
+git clone https://github.com/milk-org/gstImageStreamIO.git
+cd gstImageStreamIO
 mkdir build
 cd build
 cmake ..
