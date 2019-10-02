@@ -1,0 +1,8 @@
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+GST_PLUGIN_PATH=.
+
+ENCODER_OPT="pass=quant"  #best quality heavy net load
+# ENCODER_OPT="rc-lookahead=5"
+# ENCODER_OPT="pass=5 quantizer=25 speed-preset=6"
+
+gst-launch-1.0 imageStreamIOsrc shm-name=micado_$1 ! videoconvert ! x264enc rc-lookahead=5 ! h264parse ! rtph264pay pt=96 ! udpsink host=sevin-dock.obspm.fr port=5000  sync=false
