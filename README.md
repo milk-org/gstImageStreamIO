@@ -1,5 +1,16 @@
 # gstImageStreamIO plugin
 
+- [gstImageStreamIO plugin](#gstimagestreamio-plugin)
+  - [installation](#installation)
+  - [gstImageStreamIOsrc element](#gstimagestreamiosrc-element)
+    - [using 264 needs gst-plugins-ugly](#using-264-needs-gst-plugins-ugly)
+    - [using 263 needs gst-plugins-good (low quality)](#using-263-needs-gst-plugins-good-low-quality)
+    - [using vp8 needs gst-plugins-good (high CPU consumption)](#using-vp8-needs-gst-plugins-good-high-cpu-consumption)
+  - [Applications](#applications)
+    - [server](#server)
+    - [client (not working)](#client-not-working)
+- [to stream to VLC](#to-stream-to-vlc)
+
 ## installation
 
 ```bash
@@ -84,4 +95,14 @@ gst-launch-1.0 udpsrc address=127.0.0.1 port=5000 caps="application/x-rtp" ! rtp
 
 ```bash
 ./gstimageStreamIOsrc_client 127.0.0.1 5000
+```
+
+# to stream to VLC
+
+```bash
+gst-launch-1.0 imageStreamIOsrc shm-name=sevin_toto ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! h264parse ! rtph264pay pt=96 ! udpsink host=127.0.0.1 port=5000  sync=false 
+```
+
+```bash
+cvlc stream.sdp
 ```

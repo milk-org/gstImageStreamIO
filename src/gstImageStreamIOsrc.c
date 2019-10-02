@@ -335,26 +335,25 @@ static gboolean gst_imageStreamIOsrc_start(GstBaseSrc *src) {
     imageStreamIOsrc->sem_num =
         ImageStreamIO_getsemwaitindex(imageStreamIOsrc->image, 0);
 
-    int imXsize = 0;
-    int imYsize = 0;
     int imid = 0;
     int imcnt0 = imageStreamIOsrc->image->md[0].cnt0;
 
+    int imXsize = imageStreamIOsrc->image->md[0].size[0];
+    int imYsize = imageStreamIOsrc->image->md[0].size[1];
     if (imageStreamIOsrc->image->md[0].naxis == 2) {
-      imXsize = imageStreamIOsrc->image->md[0].size[0];
-      imYsize = imageStreamIOsrc->image->md[0].size[1];
-      imid = 0;
+        imid = 0;
     } else if (imageStreamIOsrc->image->md[0].naxis == 3) {
-      imXsize = imageStreamIOsrc->image->md[0].size[1];
-      imYsize = imageStreamIOsrc->image->md[0].size[2];
-      imid = imcnt0 % imageStreamIOsrc->image->md[0].size[0];
+      imid = imageStreamIOsrc->image->md[0].cnt1;
+    } else {
+      GST_DEBUG_OBJECT(imageStreamIOsrc, "wrong dimensions");
+      return FALSE;
     }
     int imSize = imXsize * imYsize;
 
     imageStreamIOsrc->height = imXsize;
     imageStreamIOsrc->width = imYsize;
     imageStreamIOsrc->framerate = 25;
-    imageStreamIOsrc->shmtype = imageStreamIOsrc->image->md[0].atype;
+    imageStreamIOsrc->shmtype = imageStreamIOsrc->image->md[0].datatype;
     imageStreamIOsrc->shmsize =
         imSize * ImageStreamIO_typesize(imageStreamIOsrc->shmtype);
 
@@ -440,21 +439,19 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
   ImageStreamIO_semwait(imageStreamIOsrc->image, imageStreamIOsrc->sem_num);
   switch (imageStreamIOsrc->shmtype) {
   case _DATATYPE_UINT16:
+    GST_INFO_OBJECT (imageStreamIOsrc, "DATATYPE_UINT16");
     memcpy(map, imageStreamIOsrc->image->array.UI16, imageStreamIOsrc->shmsize);
-    /*			GST_INFO_OBJECT (imageStreamIOsrc,
-     * "DATATYPE_UINT16");*/
     break;
   case _DATATYPE_FLOAT:
+    GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
+    GST_INFO_OBJECT(imageStreamIOsrc, "info.maxsize %lu", info.maxsize);
+    GST_INFO_OBJECT(imageStreamIOsrc, "DATATYPE_FLOAT");
+    GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
+                    imageStreamIOsrc->image->memsize);
     for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
          i++) {
       map[i] = (uint16_t)floor((1+imageStreamIOsrc->image->array.F[i])*32767);
     }
-
-    // GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
-    // GST_INFO_OBJECT(imageStreamIOsrc, "info.maxsize %lu", info.maxsize);
-    // GST_INFO_OBJECT(imageStreamIOsrc, "DATATYPE_FLOAT");
-    // GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
-    //                 imageStreamIOsrc->image->memsize);
     break;
   }
 
