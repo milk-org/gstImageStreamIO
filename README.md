@@ -13,7 +13,8 @@ sudo cp libgstimageStreamIO.so /usr/lib/gstreamer-1.0/
 ```
 
 NB: /usr/lib/gstreamer-1.0/ can be changed where your gstreamer plugins are installed.
-You can also use *--gst-plugin-path=* flag to avoid the copy in your system
+You can use *--gst-plugin-path=* flag to avoid the copy in your system
+You can also use GST_PLUGIN_PATH or GST_PLUGIN_PATH_1_0 environment vairables
 
 ## gstImageStreamIOsrc element
 
