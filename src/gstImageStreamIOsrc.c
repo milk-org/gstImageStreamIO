@@ -443,7 +443,7 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 
   ret = gst_buffer_map(*buf, &info, GST_MAP_WRITE);
   map = (uint16_t *)info.data;
-  map_end = (uint16_t *)info.data + imageStreamIOsrc->shmsize;
+  map_end = (uint16_t *)(info.data + imageStreamIOsrc->shmsize);
   gst_base_src_set_do_timestamp(GST_BASE_SRC_CAST(imageStreamIOsrc), TRUE);
   GST_BUFFER_PTS(buf) =
       imageStreamIOsrc->accum_rtime + imageStreamIOsrc->running_time;
@@ -460,10 +460,10 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
     GST_INFO_OBJECT(imageStreamIOsrc, "DATATYPE_UINT16");
     GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
                     imageStreamIOsrc->image->memsize);
-    uint16_t zMax = imageStreamIOsrc->image->array.UI16[0],
-             zMin = imageStreamIOsrc->image->array.UI16[0], *value;
+    float zMax = imageStreamIOsrc->image->array.UI16[0],
+          zMin = imageStreamIOsrc->image->array.UI16[0];
     const long imSize = imageStreamIOsrc->height * imageStreamIOsrc->width;
-    uint16_t *imStart = imageStreamIOsrc->image->array.UI16;
+    uint16_t *imStart = imageStreamIOsrc->image->array.UI16, *value;
     const uint16_t *imEnd = imStart + imSize;
 
     value = imStart;
@@ -473,10 +473,12 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
       value++;
     } while (value < imEnd);
 
+    value = imStart;
     do {
-      *map = (uint16_t)floor((*map - zMin) / (zMax - zMin) * 65536);
+      *map = (uint16_t)floor((*value - zMin) / (zMax - zMin) * 65536.);
       map++;
-    } while (map < map_end);
+      value++;
+    } while (value < imEnd);
   }; break;
   case _DATATYPE_FLOAT: {
     GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
@@ -485,9 +487,9 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
     GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
                     imageStreamIOsrc->image->memsize);
     float zMax = imageStreamIOsrc->image->array.F[0],
-          zMin = imageStreamIOsrc->image->array.F[0], *value;
+          zMin = imageStreamIOsrc->image->array.F[0];
     const long imSize = imageStreamIOsrc->height * imageStreamIOsrc->width;
-    float *imStart = imageStreamIOsrc->image->array.F;
+    float *imStart = imageStreamIOsrc->image->array.F, *value;
     const float *imEnd = imStart + imSize;
 
     value = imStart;
@@ -497,15 +499,22 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
       value++;
     } while (value < imEnd);
 
+    GST_INFO_OBJECT(imageStreamIOsrc, "zMin %f", zMin);
+    GST_INFO_OBJECT(imageStreamIOsrc, "zMax %f", zMax);
+    value = imStart;
     do {
-      *map = (uint16_t)floor((*map - zMin) / (zMax - zMin) * 65536);
+      GST_INFO_OBJECT(imageStreamIOsrc, "map, value before %d, %f", *map, *value);
+      *map = (uint16_t)floor((*value - zMin) / (zMax - zMin) * 65536.);
+      GST_INFO_OBJECT(imageStreamIOsrc, "map, value after %d, %f", *map, *value);
       map++;
-    } while (map < map_end);
+      value++;
+    } while (value < imEnd);
   }; break;
   }
 
   gst_buffer_unmap(*buf, &info);
 
+  usleep(10000);
   // GST_BUFFER_TIMESTAMP(buf) = imageStreamIOsrc->running_time;
 
   // GST_INFO_OBJECT(imageStreamIOsrc, "image count %lu",
