@@ -62,7 +62,10 @@ static void gst_imageStreamIOsrc_get_times(GstBaseSrc *src, GstBuffer *buffer,
 static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
                                                  GstBuffer **buf);
 
-enum { PROP_0, PROP_IS_LIVE, PROP_SHM_AREA_NAME };
+enum { PROP_0, PROP_SHM_NAME, PROP_SHM_MIN, PROP_SHM_MAX, N_PROPERTIES };
+static GParamSpec *obj_properties[N_PROPERTIES] = {
+    NULL,
+};
 
 /* pad templates */
 static GstStaticPadTemplate gst_imageStreamIOsrc_template =
@@ -91,19 +94,30 @@ static void gst_imageStreamIOsrc_class_init(GstImageStreamIOsrcClass *klass) {
   gst_element_class_add_static_pad_template(gstelement_class,
                                             &gst_imageStreamIOsrc_template);
 
-  gst_element_class_set_static_metadata(gstelement_class, "imageStreamIO source",
-                                        "Generic", "imageStreamIO source",
-                                        "Julien Brulé <Julien.Brule@obspm.fr>, Arnaud Sevin <Arnaud.Sevin@obspm.fr>");
+  gst_element_class_set_static_metadata(gstelement_class,
+                                        "imageStreamIO source", "Generic",
+                                        "imageStreamIO source",
+                                        "Julien Brulé <Julien.Brule@obspm.fr>, "
+                                        "Arnaud Sevin <Arnaud.Sevin@obspm.fr>");
+
+  obj_properties[PROP_SHM_NAME] =
+      g_param_spec_string("shm-name", "Name of the shared memory",
+                          "define the location of the shmfile", "imtest00",
+                          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_SHM_MIN] = g_param_spec_int(
+      "min", "Minimum value of the frame", "Get the minimum value of the frame",
+      G_MININT, G_MAXINT, G_MININT, G_PARAM_READWRITE);
+
+  obj_properties[PROP_SHM_MAX] = g_param_spec_int(
+      "max", "Maximum value of the frame", "Get the maximum value of the frame",
+      G_MININT, G_MAXINT, G_MAXINT, G_PARAM_READWRITE);
 
   gobject_class->set_property = gst_imageStreamIOsrc_set_property;
   gobject_class->get_property = gst_imageStreamIOsrc_get_property;
+  g_object_class_install_properties(gobject_class, N_PROPERTIES,
+                                    obj_properties);
   gobject_class->finalize = gst_imageStreamIOsrc_finalize;
-
-  g_object_class_install_property(
-      gobject_class, PROP_SHM_AREA_NAME,
-      g_param_spec_string("shm-name", "Name of the shared memory area",
-                          "location of the shmfile", "imtest00",
-                          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   base_src_class->negotiate = GST_DEBUG_FUNCPTR(gst_imageStreamIOsrc_negotiate);
   base_src_class->fixate = GST_DEBUG_FUNCPTR(gst_imageStreamIOsrc_fixate);
@@ -132,7 +146,7 @@ void gst_imageStreamIOsrc_set_property(GObject *object, guint property_id,
   GST_DEBUG_OBJECT(imageStreamIOsrc, "set_property");
 
   switch (property_id) {
-  case PROP_SHM_AREA_NAME:
+  case PROP_SHM_NAME:
     // g_free(imageStreamIOsrc->shmpathname);
     /* check if we are currently active
        prevent setting camera and other values to something not representing
@@ -158,7 +172,7 @@ void gst_imageStreamIOsrc_get_property(GObject *object, guint property_id,
   GST_DEBUG_OBJECT(imageStreamIOsrc, "get_property");
 
   switch (property_id) {
-  case PROP_SHM_AREA_NAME:
+  case PROP_SHM_NAME:
     g_value_set_string(value, imageStreamIOsrc->shmpathname);
     GST_LOG_OBJECT(imageStreamIOsrc, "Set shm path name to %s",
                    imageStreamIOsrc->shmpathname);
@@ -194,7 +208,8 @@ static gboolean gst_imageStreamIOsrc_negotiate(GstBaseSrc *src) {
 
   GST_DEBUG_OBJECT(imageStreamIOsrc, "negotiate");
 
-  // stream_id = gst_pad_create_stream_id(GST_BASE_SRC_PAD(src), GST_ELEMENT(src),
+  // stream_id = gst_pad_create_stream_id(GST_BASE_SRC_PAD(src),
+  // GST_ELEMENT(src),
   //                                      "RAWSHMSRC");
   // stream_start = gst_event_new_stream_start(stream_id);
   // g_free(stream_id);
@@ -211,7 +226,7 @@ static gboolean gst_imageStreamIOsrc_negotiate(GstBaseSrc *src) {
 
   structure = gst_caps_get_structure(caps, 0);
   gst_structure_fixate_field_nearest_fraction(structure, "framerate",
-                                         imageStreamIOsrc->framerate, 1);
+                                              imageStreamIOsrc->framerate, 1);
 
   gst_base_src_set_caps(src, caps);
 
@@ -233,7 +248,7 @@ static GstCaps *gst_imageStreamIOsrc_fixate(GstBaseSrc *src, GstCaps *caps) {
   gst_structure_fixate_field_nearest_int(structure, "height",
                                          imageStreamIOsrc->height);
   gst_structure_fixate_field_nearest_fraction(structure, "framerate",
-                                         imageStreamIOsrc->framerate, 1);
+                                              imageStreamIOsrc->framerate, 1);
   caps = GST_BASE_SRC_CLASS(src)->fixate(src, caps);
   GST_LOG("caps are %" GST_PTR_FORMAT, caps);
 
@@ -328,37 +343,37 @@ static gboolean gst_imageStreamIOsrc_start(GstBaseSrc *src) {
 
   GST_DEBUG_OBJECT(imageStreamIOsrc, "start");
 
-    /* open mmap en imageSteamIO */
-    ImageStreamIO_read_sharedmem_image_toIMAGE(imageStreamIOsrc->shmpathname,
-                                               imageStreamIOsrc->image);
+  /* open mmap en imageSteamIO */
+  ImageStreamIO_read_sharedmem_image_toIMAGE(imageStreamIOsrc->shmpathname,
+                                             imageStreamIOsrc->image);
 
-    imageStreamIOsrc->sem_num =
-        ImageStreamIO_getsemwaitindex(imageStreamIOsrc->image, 0);
+  imageStreamIOsrc->sem_num =
+      ImageStreamIO_getsemwaitindex(imageStreamIOsrc->image, 0);
 
-    int imid = 0;
-    int imcnt0 = imageStreamIOsrc->image->md[0].cnt0;
+  int imid = 0;
+  int imcnt0 = imageStreamIOsrc->image->md[0].cnt0;
 
-    int imXsize = imageStreamIOsrc->image->md[0].size[0];
-    int imYsize = imageStreamIOsrc->image->md[0].size[1];
-    if (imageStreamIOsrc->image->md[0].naxis == 2) {
-        imid = 0;
-    } else if (imageStreamIOsrc->image->md[0].naxis == 3) {
-      imid = imageStreamIOsrc->image->md[0].cnt1;
-    } else {
-      GST_DEBUG_OBJECT(imageStreamIOsrc, "wrong dimensions");
-      return FALSE;
-    }
-    int imSize = imXsize * imYsize;
+  int imXsize = imageStreamIOsrc->image->md[0].size[0];
+  int imYsize = imageStreamIOsrc->image->md[0].size[1];
+  if (imageStreamIOsrc->image->md[0].naxis == 2) {
+    imid = 0;
+  } else if (imageStreamIOsrc->image->md[0].naxis == 3) {
+    imid = imageStreamIOsrc->image->md[0].cnt1;
+  } else {
+    GST_DEBUG_OBJECT(imageStreamIOsrc, "wrong dimensions");
+    return FALSE;
+  }
+  int imSize = imXsize * imYsize;
 
-    imageStreamIOsrc->height = imXsize;
-    imageStreamIOsrc->width = imYsize;
-    imageStreamIOsrc->framerate = 25;
-    imageStreamIOsrc->shmtype = imageStreamIOsrc->image->md[0].datatype;
-    imageStreamIOsrc->shmsize =
-        imSize * ImageStreamIO_typesize(imageStreamIOsrc->shmtype);
+  imageStreamIOsrc->height = imXsize;
+  imageStreamIOsrc->width = imYsize;
+  imageStreamIOsrc->framerate = 25;
+  imageStreamIOsrc->shmtype = imageStreamIOsrc->image->md[0].datatype;
+  imageStreamIOsrc->shmsize =
+      imSize * ImageStreamIO_typesize(imageStreamIOsrc->shmtype);
 
-    imageStreamIOsrc->running_time = 0;
-    imageStreamIOsrc->accum_rtime = 0;
+  imageStreamIOsrc->running_time = 0;
+  imageStreamIOsrc->accum_rtime = 0;
 
   gst_base_src_set_live(src, TRUE);
   /*	gst_video_info_init (&imageStreamIOsrc->vinfo);*/
@@ -417,7 +432,7 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
   gboolean ret;
   GstMapInfo info;
   GstClockTime next_time;
-  uint16_t *map;
+  uint16_t *map, *map_end;
   GstImageStreamIOsrc *imageStreamIOsrc = GST_GSTIMAGESTREAMIOSRC(src);
 
   GST_DEBUG_OBJECT(imageStreamIOsrc, "create");
@@ -428,6 +443,7 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 
   ret = gst_buffer_map(*buf, &info, GST_MAP_WRITE);
   map = (uint16_t *)info.data;
+  map_end = (uint16_t *)info.data + imageStreamIOsrc->shmsize;
   gst_base_src_set_do_timestamp(GST_BASE_SRC_CAST(imageStreamIOsrc), TRUE);
   GST_BUFFER_PTS(buf) =
       imageStreamIOsrc->accum_rtime + imageStreamIOsrc->running_time;
@@ -438,21 +454,54 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 
   ImageStreamIO_semwait(imageStreamIOsrc->image, imageStreamIOsrc->sem_num);
   switch (imageStreamIOsrc->shmtype) {
-  case _DATATYPE_UINT16:
-    GST_INFO_OBJECT (imageStreamIOsrc, "DATATYPE_UINT16");
-    memcpy(map, imageStreamIOsrc->image->array.UI16, imageStreamIOsrc->shmsize);
-    break;
-  case _DATATYPE_FLOAT:
+  case _DATATYPE_UINT16: {
+    GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
+    GST_INFO_OBJECT(imageStreamIOsrc, "info.maxsize %lu", info.maxsize);
+    GST_INFO_OBJECT(imageStreamIOsrc, "DATATYPE_UINT16");
+    GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
+                    imageStreamIOsrc->image->memsize);
+    uint16_t zMax = imageStreamIOsrc->image->array.UI16[0],
+             zMin = imageStreamIOsrc->image->array.UI16[0], *value;
+    const long imSize = imageStreamIOsrc->height * imageStreamIOsrc->width;
+    uint16_t *imStart = imageStreamIOsrc->image->array.UI16;
+    const uint16_t *imEnd = imStart + imSize;
+
+    value = imStart;
+    do {
+      zMax = (zMax < *value ? *value : zMax);
+      zMin = (zMin > *value ? *value : zMin);
+      value++;
+    } while (value < imEnd);
+
+    do {
+      *map = (uint16_t)floor((*map - zMin) / (zMax - zMin) * 65536);
+      map++;
+    } while (map < map_end);
+  }; break;
+  case _DATATYPE_FLOAT: {
     GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
     GST_INFO_OBJECT(imageStreamIOsrc, "info.maxsize %lu", info.maxsize);
     GST_INFO_OBJECT(imageStreamIOsrc, "DATATYPE_FLOAT");
     GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
                     imageStreamIOsrc->image->memsize);
-    for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
-         i++) {
-      map[i] = (uint16_t)floor((1+imageStreamIOsrc->image->array.F[i])*32767);
-    }
-    break;
+    float zMax = imageStreamIOsrc->image->array.F[0],
+          zMin = imageStreamIOsrc->image->array.F[0], *value;
+    const long imSize = imageStreamIOsrc->height * imageStreamIOsrc->width;
+    float *imStart = imageStreamIOsrc->image->array.F;
+    const float *imEnd = imStart + imSize;
+
+    value = imStart;
+    do {
+      zMax = (zMax < *value ? *value : zMax);
+      zMin = (zMin > *value ? *value : zMin);
+      value++;
+    } while (value < imEnd);
+
+    do {
+      *map = (uint16_t)floor((*map - zMin) / (zMax - zMin) * 65536);
+      map++;
+    } while (map < map_end);
+  }; break;
   }
 
   gst_buffer_unmap(*buf, &info);
@@ -464,7 +513,8 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 
   // if (imageStreamIOsrc->framerate) {
   //   next_time =
-  //       gst_util_uint64_scale_int(GST_SECOND, imageStreamIOsrc->framerate, 1);
+  //       gst_util_uint64_scale_int(GST_SECOND, imageStreamIOsrc->framerate,
+  //       1);
   //   GST_BUFFER_DURATION(buf) = next_time - imageStreamIOsrc->running_time;
 
   // } else {
@@ -475,12 +525,11 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
   /* running time avec framerate on livesource*/
   // imageStreamIOsrc->running_time = next_time;
 
-  imageStreamIOsrc->running_time = gst_clock_get_time(GST_ELEMENT_CLOCK(src))
-  -
+  imageStreamIOsrc->running_time = gst_clock_get_time(GST_ELEMENT_CLOCK(src)) -
                                    GST_ELEMENT_CAST(src)->base_time;
 
   GST_INFO_OBJECT(imageStreamIOsrc, "running time %" GST_TIME_FORMAT,
-                   GST_TIME_ARGS(imageStreamIOsrc->running_time));
+                  GST_TIME_ARGS(imageStreamIOsrc->running_time));
   // GST_BUFFER_PTS(buf) = GST_CLOCK_TIME_NONE;
   // gst_object_sync_values(GST_OBJECT(src), GST_BUFFER_PTS(buf));
 
