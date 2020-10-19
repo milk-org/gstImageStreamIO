@@ -343,27 +343,34 @@ static gboolean gst_imageStreamIOsrc_start(GstBaseSrc *src) {
 
   GST_DEBUG_OBJECT(imageStreamIOsrc, "start");
 
-  /* open mmap en imageSteamIO */
-  ImageStreamIO_read_sharedmem_image_toIMAGE(imageStreamIOsrc->shmpathname,
-                                             imageStreamIOsrc->image);
+    /* open mmap en imageSteamIO */
+    ImageStreamIO_read_sharedmem_image_toIMAGE(imageStreamIOsrc->shmpathname,
+                                               imageStreamIOsrc->image);
 
-  imageStreamIOsrc->sem_num =
-      ImageStreamIO_getsemwaitindex(imageStreamIOsrc->image, 0);
+    imageStreamIOsrc->sem_num =
+        ImageStreamIO_getsemwaitindex(imageStreamIOsrc->image, 0);
 
-  int imid = 0;
-  int imcnt0 = imageStreamIOsrc->image->md[0].cnt0;
+    int imid = 0;
+    int imcnt0 = imageStreamIOsrc->image->md->cnt0;
 
-  int imXsize = imageStreamIOsrc->image->md[0].size[0];
-  int imYsize = imageStreamIOsrc->image->md[0].size[1];
-  if (imageStreamIOsrc->image->md[0].naxis == 2) {
-    imid = 0;
-  } else if (imageStreamIOsrc->image->md[0].naxis == 3) {
-    imid = imageStreamIOsrc->image->md[0].cnt1;
-  } else {
-    GST_DEBUG_OBJECT(imageStreamIOsrc, "wrong dimensions");
-    return FALSE;
-  }
-  int imSize = imXsize * imYsize;
+    int imXsize = imageStreamIOsrc->image->md->size[0];
+    int imYsize = imageStreamIOsrc->image->md->size[1];
+    if (imageStreamIOsrc->image->md->naxis == 2) {
+        imid = 0;
+    } else if (imageStreamIOsrc->image->md->naxis == 3) {
+      imid = imageStreamIOsrc->image->md->cnt1;
+    } else {
+      GST_DEBUG_OBJECT(imageStreamIOsrc, "wrong dimensions");
+      return FALSE;
+    }
+    int imSize = imXsize * imYsize;
+
+    imageStreamIOsrc->height = imXsize;
+    imageStreamIOsrc->width = imYsize;
+    imageStreamIOsrc->framerate = 25;
+    imageStreamIOsrc->shmtype = imageStreamIOsrc->image->md->datatype;
+    imageStreamIOsrc->shmsize =
+        imSize * ImageStreamIO_typesize(imageStreamIOsrc->shmtype);
 
   imageStreamIOsrc->height = imXsize;
   imageStreamIOsrc->width = imYsize;
@@ -434,6 +441,7 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
   GstClockTime next_time;
   uint16_t *map, *map_end;
   GstImageStreamIOsrc *imageStreamIOsrc = GST_GSTIMAGESTREAMIOSRC(src);
+  float *f_map;
 
   GST_DEBUG_OBJECT(imageStreamIOsrc, "create");
 
@@ -454,85 +462,112 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 
   ImageStreamIO_semwait(imageStreamIOsrc->image, imageStreamIOsrc->sem_num);
   switch (imageStreamIOsrc->shmtype) {
-  case _DATATYPE_UINT16: {
-    GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
-    GST_INFO_OBJECT(imageStreamIOsrc, "info.maxsize %lu", info.maxsize);
-    GST_INFO_OBJECT(imageStreamIOsrc, "DATATYPE_UINT16");
-    GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
-                    imageStreamIOsrc->image->memsize);
-    float zMax = imageStreamIOsrc->image->array.UI16[0],
-          zMin = imageStreamIOsrc->image->array.UI16[0];
-    const long imSize = imageStreamIOsrc->height * imageStreamIOsrc->width;
-    uint16_t *imStart = imageStreamIOsrc->image->array.UI16, *value;
-    const uint16_t *imEnd = imStart + imSize;
-
-    value = imStart;
-    do {
-      zMax = (zMax < *value ? *value : zMax);
-      zMin = (zMin > *value ? *value : zMin);
-      value++;
-    } while (value < imEnd);
-
-    value = imStart;
-    do {
-      *map = (uint16_t)floor((*value - zMin) / (zMax - zMin) * 65536.);
-      map++;
-      value++;
-    } while (value < imEnd);
-  }; break;
-  case _DATATYPE_FLOAT: {
+  case _DATATYPE_UINT16:
+    GST_INFO_OBJECT (imageStreamIOsrc, "DATATYPE_UINT16");
+    if (imageStreamIOsrc->image->md->location == -1) {
+      GST_INFO_OBJECT (imageStreamIOsrc, "doing memcpy directly");
+      memcpy(map, imageStreamIOsrc->image->array.raw, imageStreamIOsrc->shmsize);
+    } else {
+#ifdef HAVE_CUDA
+      GST_INFO_OBJECT (imageStreamIOsrc, "doing cudaMemcpy from GPU%d directly", imageStreamIOsrc->image->md->location);
+      cudaSetDevice(imageStreamIOsrc->image->md->location);
+      if(cudaMemcpy(map, imageStreamIOsrc->image->array.raw, imageStreamIOsrc->shmsize, cudaMemcpyDeviceToHost) != cudaSuccess){
+        fprintf(stderr, "cudaMemcpy failled");
+        return GST_FLOW_ERROR;
+      }
+      cudaDeviceSynchronize();
+#else
+      fprintf(stderr, "not compiled with USE_CUDA flag");
+      return GST_FLOW_ERROR;
+#endif
+    }
+    break;
+  case _DATATYPE_FLOAT:
     GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
     GST_INFO_OBJECT(imageStreamIOsrc, "info.maxsize %lu", info.maxsize);
     GST_INFO_OBJECT(imageStreamIOsrc, "DATATYPE_FLOAT");
     GST_INFO_OBJECT(imageStreamIOsrc, "->memsize %lu",
                     imageStreamIOsrc->image->memsize);
-    float zMax = imageStreamIOsrc->image->array.F[0],
-          zMin = imageStreamIOsrc->image->array.F[0];
-    const long imSize = imageStreamIOsrc->height * imageStreamIOsrc->width;
-    float *imStart = imageStreamIOsrc->image->array.F, *value;
-    const float *imEnd = imStart + imSize;
+    if (imageStreamIOsrc->image->md->location == -1) {
+      GST_INFO_OBJECT (imageStreamIOsrc, "using imageStreamIO SHM pointer");
+      f_map = imageStreamIOsrc->image->array.F;
+    } else {
+#ifdef HAVE_CUDA
+      f_map = (float*)malloc(imageStreamIOsrc->shmsize);
+      GST_INFO_OBJECT (imageStreamIOsrc, "using temporary buffer for doing cudaMemcpy from GPU%d", imageStreamIOsrc->image->md->location);
+      cudaSetDevice(imageStreamIOsrc->image->md->location);
+      if(cudaMemcpy(f_map, imageStreamIOsrc->image->array.raw, imageStreamIOsrc->shmsize, cudaMemcpyDeviceToHost) != cudaSuccess){
+        fprintf(stderr, "cudaMemcpy failled");
+        return GST_FLOW_ERROR;
+      }
+      cudaDeviceSynchronize();
+#else
+      fprintf(stderr, "not compiled with USE_CUDA flag");
+      return GST_FLOW_ERROR;
+#endif
+    }
 
-    value = imStart;
-    do {
-      zMax = (zMax < *value ? *value : zMax);
-      zMin = (zMin > *value ? *value : zMin);
-      value++;
-    } while (value < imEnd);
-
-    GST_INFO_OBJECT(imageStreamIOsrc, "zMin %f", zMin);
-    GST_INFO_OBJECT(imageStreamIOsrc, "zMax %f", zMax);
-    value = imStart;
-    do {
-      GST_INFO_OBJECT(imageStreamIOsrc, "map, value before %d, %f", *map, *value);
-      *map = (uint16_t)floor((*value - zMin) / (zMax - zMin) * 65536.);
-      GST_INFO_OBJECT(imageStreamIOsrc, "map, value after %d, %f", *map, *value);
-      map++;
-      value++;
-    } while (value < imEnd);
-  }; break;
+    GST_INFO_OBJECT (imageStreamIOsrc, "converting float to uint16");
+    for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+         i++) {
+      map[i] = (uint16_t)floor((1+f_map[i])*32767);
+    }
+    if (imageStreamIOsrc->image->md->location > -1) {
+#ifdef HAVE_CUDA
+      free(f_map);
+#else
+      fprintf(stderr, "not compiled with USE_CUDA flag");
+      return GST_FLOW_ERROR;
+#endif
+    }
+    break;
+    default:
+    GST_INFO_OBJECT (imageStreamIOsrc, "DATATYPE not managed");
+    break;
   }
+  // for (int i = 0; i < 100; //imageStreamIOsrc->height * imageStreamIOsrc->width;
+  //      i++) {
+  //   GST_INFO_OBJECT (imageStreamIOsrc, "%d: %d", i, map[i]);
+  // }
+
+  double max=0, min=65535, value;
+  for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+        i++) {
+    value = sqrt(map[i]);
+    max = (value>max?value:max);
+    min = (value<min?value:min);
+  }
+  GST_INFO_OBJECT (imageStreamIOsrc, "min %d ;  max %d", min, max);
+
+  for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+        i++) {
+    map[i] = (uint16_t)floor((sqrt(map[i])-min)/(max-min)*65535);
+  }
+
+  // for (int i = 0; i < 100; //imageStreamIOsrc->height * imageStreamIOsrc->width;
+  //      i++) {
+  //   GST_INFO_OBJECT (imageStreamIOsrc, "%d: %d", i, map[i]);
+  // }
 
   gst_buffer_unmap(*buf, &info);
 
-  usleep(10000);
-  // GST_BUFFER_TIMESTAMP(buf) = imageStreamIOsrc->running_time;
+  GST_BUFFER_TIMESTAMP(buf) = imageStreamIOsrc->running_time;
 
-  // GST_INFO_OBJECT(imageStreamIOsrc, "image count %lu",
-  //                 imageStreamIOsrc->image->md->cnt0);
+  GST_INFO_OBJECT(imageStreamIOsrc, "image count %lu",
+                  imageStreamIOsrc->image->md->cnt0);
 
-  // if (imageStreamIOsrc->framerate) {
-  //   next_time =
-  //       gst_util_uint64_scale_int(GST_SECOND, imageStreamIOsrc->framerate,
-  //       1);
-  //   GST_BUFFER_DURATION(buf) = next_time - imageStreamIOsrc->running_time;
+  if (imageStreamIOsrc->framerate) {
+    next_time =
+        gst_util_uint64_scale_int(GST_SECOND, imageStreamIOsrc->framerate, 1);
+    GST_BUFFER_DURATION(buf) = next_time - imageStreamIOsrc->running_time;
 
-  // } else {
-  //   next_time = 0;
-  //   GST_BUFFER_DURATION(buf) = GST_CLOCK_TIME_NONE;
-  // }
+  } else {
+    next_time = 0;
+    GST_BUFFER_DURATION(buf) = GST_CLOCK_TIME_NONE;
+  }
 
   /* running time avec framerate on livesource*/
-  // imageStreamIOsrc->running_time = next_time;
+  imageStreamIOsrc->running_time = next_time;
 
   imageStreamIOsrc->running_time = gst_clock_get_time(GST_ELEMENT_CLOCK(src)) -
                                    GST_ELEMENT_CAST(src)->base_time;

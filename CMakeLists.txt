@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 2.8)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -std=gnu++0x -g -fpermissive")
 
+set(LIBNAME "gstImageStreamIO")
+set(SRCNAME "gstImageStreamIO")
+
+project(gstImageStreamIOproj LANGUAGES C)
+
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(GLIB REQUIRED glib-2.0)
@@ -27,6 +32,14 @@ include_directories(
 link_directories(
   ${GLIB_LIBRARY_DIRS}
 )
+
+if(USE_CUDA)
+  find_package(CUDA REQUIRED)
+  link_directories(
+    /usr/local/cuda/lib64
+  )
+  endif(USE_CUDA)
+
 
 set(GSTREAMER_MINIMUM_VERSION 1.0.5)
 
@@ -61,9 +74,9 @@ link_directories(
   ${GSTREAMER-FFT_LIBRARY_DIRS}
 )
 
-add_library( gstimageStreamIO SHARED
-  src/gstImageStreamIO.c
-  src/gstImageStreamIOsrc.c
+add_library(${LIBNAME} SHARED
+  src/${LIBNAME}.c
+  src/${LIBNAME}src.c
 )
 
 set(gst_imageStreamIOsrc_LIBRARIES
@@ -81,11 +94,16 @@ set(gst_imageStreamIOsrc_LIBRARIES
   ImageStreamIO
 )
 
-target_link_libraries(gstimageStreamIO ${gst_imageStreamIOsrc_LIBRARIES} ImageStreamIO)
 
-add_executable(gstimageStreamIOsrc_server src/server.c)
-target_link_libraries(gstimageStreamIOsrc_server ${GSTREAMER_LIBRARIES})
-add_executable(gstimageStreamIOsrc_client src/client.c)
-target_link_libraries(gstimageStreamIOsrc_client ${GSTREAMER_LIBRARIES})
+target_link_libraries(${LIBNAME} PUBLIC ${gst_imageStreamIOsrc_LIBRARIES})
 
+if(USE_CUDA)
+  target_include_directories(${LIBNAME} PUBLIC ${CUDA_INCLUDE_DIRS})
+  target_link_libraries(${LIBNAME} PUBLIC cudart ${CUDA_LIBRARIES})
+  target_compile_options(${LIBNAME} PUBLIC -DHAVE_CUDA)
+endif(USE_CUDA)
 
+add_executable(${LIBNAME}src_server src/server.c)
+target_link_libraries(${LIBNAME}src_server ${GSTREAMER_LIBRARIES})
+add_executable(${LIBNAME}src_client src/client.c)
+target_link_libraries(${LIBNAME}src_client ${GSTREAMER_LIBRARIES})
