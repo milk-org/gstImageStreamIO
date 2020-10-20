@@ -452,7 +452,6 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 
   ret = gst_buffer_map(*buf, &info, GST_MAP_WRITE);
   map = (uint16_t *)info.data;
-  map_end = (uint16_t *)(info.data + imageStreamIOsrc->shmsize);
   gst_base_src_set_do_timestamp(GST_BASE_SRC_CAST(imageStreamIOsrc), TRUE);
   GST_BUFFER_PTS(buf) =
       imageStreamIOsrc->accum_rtime + imageStreamIOsrc->running_time;
@@ -512,7 +511,7 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 #endif
     }
 
-    GST_INFO_OBJECT (imageStreamIOsrc, "converting float to uint16");
+    GST_INFO_OBJECT (imageStreamIOsrc, "converting float [-1,1] to uint16");
     for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
          i++) {
       map[i] = (uint16_t)floor((1+f_map[i])*32767);
@@ -535,8 +534,8 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
   //   GST_INFO_OBJECT (imageStreamIOsrc, "%d: %d", i, map[i]);
   // }
 
-  double max=0, min=65535, value;
-  for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+  double max=sqrt(map[0]), min=sqrt(map[0]), value;
+  for (int i = 1; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
         i++) {
     value = sqrt(map[i]);
     max = (value>max?value:max);
