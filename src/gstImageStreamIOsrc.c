@@ -439,7 +439,8 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
   gboolean ret;
   GstMapInfo info;
   GstClockTime next_time;
-  uint16_t *map, *map_end;
+  void *lastBuffer;
+  uint16_t *map;
   GstImageStreamIOsrc *imageStreamIOsrc = GST_GSTIMAGESTREAMIOSRC(src);
   float *f_map;
 
@@ -461,17 +462,21 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
     GST_DEBUG_OBJECT(src, "problem");
 
   ImageStreamIO_semwait(imageStreamIOsrc->image, imageStreamIOsrc->sem_num);
+  const int64_t nb_index =  (imageStreamIOsrc->image->md->naxis == 3 ? imageStreamIOsrc->image->md->size[2] : 1);
+  const int64_t read_index = (imageStreamIOsrc->image->md->cnt1 + 1) % nb_index;
+  ImageStreamIO_readBufferAt(imageStreamIOsrc->image, read_index, &lastBuffer);
+
   switch (imageStreamIOsrc->shmtype) {
   case _DATATYPE_UINT16:
     GST_INFO_OBJECT (imageStreamIOsrc, "DATATYPE_UINT16");
     if (imageStreamIOsrc->image->md->location == -1) {
       GST_INFO_OBJECT (imageStreamIOsrc, "doing memcpy directly");
-      memcpy(map, imageStreamIOsrc->image->array.raw, imageStreamIOsrc->shmsize);
+      memcpy(map, lastBuffer, imageStreamIOsrc->shmsize);
     } else {
 #ifdef HAVE_CUDA
       GST_INFO_OBJECT (imageStreamIOsrc, "doing cudaMemcpy from GPU%d directly", imageStreamIOsrc->image->md->location);
       cudaSetDevice(imageStreamIOsrc->image->md->location);
-      if(cudaMemcpy(map, imageStreamIOsrc->image->array.raw, imageStreamIOsrc->shmsize, cudaMemcpyDeviceToHost) != cudaSuccess){
+      if(cudaMemcpy(map, lastBuffer, imageStreamIOsrc->shmsize, cudaMemcpyDeviceToHost) != cudaSuccess){
         fprintf(stderr, "cudaMemcpy failled");
         return GST_FLOW_ERROR;
       }
@@ -490,13 +495,13 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
                     imageStreamIOsrc->image->memsize);
     if (imageStreamIOsrc->image->md->location == -1) {
       GST_INFO_OBJECT (imageStreamIOsrc, "using imageStreamIO SHM pointer");
-      f_map = imageStreamIOsrc->image->array.F;
+      f_map = (float*)lastBuffer;
     } else {
 #ifdef HAVE_CUDA
       f_map = (float*)malloc(imageStreamIOsrc->shmsize);
       GST_INFO_OBJECT (imageStreamIOsrc, "using temporary buffer for doing cudaMemcpy from GPU%d", imageStreamIOsrc->image->md->location);
       cudaSetDevice(imageStreamIOsrc->image->md->location);
-      if(cudaMemcpy(f_map, imageStreamIOsrc->image->array.raw, imageStreamIOsrc->shmsize, cudaMemcpyDeviceToHost) != cudaSuccess){
+      if(cudaMemcpy(f_map, lastBuffer, imageStreamIOsrc->shmsize, cudaMemcpyDeviceToHost) != cudaSuccess){
         fprintf(stderr, "cudaMemcpy failled");
         return GST_FLOW_ERROR;
       }
