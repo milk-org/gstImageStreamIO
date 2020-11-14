@@ -465,6 +465,7 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
   const int64_t read_index = (imageStreamIOsrc->image->md->cnt1 + 1) % nb_index;
   ImageStreamIO_readBufferAt(imageStreamIOsrc->image, read_index, &lastBuffer);
 
+  double max, min, value;
   switch (imageStreamIOsrc->shmtype) {
   case _DATATYPE_UINT16:
     GST_INFO_OBJECT (imageStreamIOsrc, "DATATYPE_UINT16");
@@ -485,6 +486,22 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
       return GST_FLOW_ERROR;
 #endif
     }
+    max=map[0];
+    min=map[0];
+    for (int i = 1; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+          i++) {
+      value = (map[i]);
+      max = (value>max?value:max);
+      min = (value<min?value:min);
+    }
+    GST_INFO_OBJECT (imageStreamIOsrc, "min %d ;  max %d", min, max);
+
+    for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+          i++) {
+      map[i] = (uint16_t)floor(((map[i])-min)/(max-min)*65535);
+    }
+
+
     break;
   case _DATATYPE_FLOAT:
     GST_INFO_OBJECT(imageStreamIOsrc, "info.size %lu", info.size);
@@ -511,11 +528,21 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
 #endif
     }
 
-    GST_INFO_OBJECT (imageStreamIOsrc, "converting float [-1,1] to uint16");
-    for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
-         i++) {
-      map[i] = (uint16_t)floor((1+f_map[i])*32767);
+    max=f_map[0];
+    min=f_map[0];
+    for (int i = 1; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+          i++) {
+      value = (f_map[i]);
+      max = (value>max?value:max);
+      min = (value<min?value:min);
     }
+    GST_INFO_OBJECT (imageStreamIOsrc, "min %d ;  max %d", min, max);
+
+    for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
+          i++) {
+      map[i] = (uint16_t)floor(((f_map[i])-min)/(max-min)*65535);
+    }
+
     if (imageStreamIOsrc->image->md->location > -1) {
 #ifdef HAVE_CUDA
       free(f_map);
@@ -529,29 +556,6 @@ static GstFlowReturn gst_imageStreamIOsrc_create(GstPushSrc *src,
     GST_INFO_OBJECT (imageStreamIOsrc, "DATATYPE not managed");
     break;
   }
-  // for (int i = 0; i < 100; //imageStreamIOsrc->height * imageStreamIOsrc->width;
-  //      i++) {
-  //   GST_INFO_OBJECT (imageStreamIOsrc, "%d: %d", i, map[i]);
-  // }
-
-  double max=sqrt(map[0]), min=sqrt(map[0]), value;
-  for (int i = 1; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
-        i++) {
-    value = sqrt(map[i]);
-    max = (value>max?value:max);
-    min = (value<min?value:min);
-  }
-  GST_INFO_OBJECT (imageStreamIOsrc, "min %d ;  max %d", min, max);
-
-  for (int i = 0; i < imageStreamIOsrc->height * imageStreamIOsrc->width;
-        i++) {
-    map[i] = (uint16_t)floor((sqrt(map[i])-min)/(max-min)*65535);
-  }
-
-  // for (int i = 0; i < 100; //imageStreamIOsrc->height * imageStreamIOsrc->width;
-  //      i++) {
-  //   GST_INFO_OBJECT (imageStreamIOsrc, "%d: %d", i, map[i]);
-  // }
 
   gst_buffer_unmap(*buf, &info);
 
