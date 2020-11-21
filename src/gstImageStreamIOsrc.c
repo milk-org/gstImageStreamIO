@@ -353,8 +353,8 @@ static gboolean gst_imageStreamIOsrc_start(GstBaseSrc *src) {
     int imid = 0;
     int imcnt0 = imageStreamIOsrc->image->md->cnt0;
 
-    int imXsize = imageStreamIOsrc->image->md->size[0];
-    int imYsize = imageStreamIOsrc->image->md->size[1];
+    int imXsize = imageStreamIOsrc->image->md->size[1];
+    int imYsize = imageStreamIOsrc->image->md->size[0];
     if (imageStreamIOsrc->image->md->naxis == 2) {
         imid = 0;
     } else if (imageStreamIOsrc->image->md->naxis == 3) {
